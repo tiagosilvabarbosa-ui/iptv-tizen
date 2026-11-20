@@ -28,6 +28,7 @@ Player de listas **M3U** e contas **Xtream Codes** (DNS, usuário e senha) para 
   3. uma **capa automática** (arte em SVG com o nome do título), usada quando a imagem falta ou não carrega.
 - **TV ao vivo:**
   - categorias, busca por nome ou número e favoritos (tecla amarela);
+  - categorias com "Lançamentos" no nome aparecem sempre em primeiro (e abrem selecionadas em Filmes/Séries);
   - programação atual e próxima (Xtream);
   - troca de canal com ▲▼, CH+/CH− ou digitando o número.
 - **Filmes e Séries:**
@@ -243,7 +244,8 @@ As URLs de reprodução seguem estes formatos:
 | Voltar | Volta uma tela. Na tela Início, pergunta se quer sair |
 | Amarelo | Favoritar o canal ou o título selecionado |
 | Ao vivo: ▲▼, CH+/CH−, números | Trocar de canal |
-| Filme/série: ◀ ▶ | Voltar ou avançar 10 s |
+| Filme/série: ◀ ▶ (ou ▲ até a linha do tempo) | Seleciona a linha do tempo e escolhe o ponto. Segurar acelera (10 s → 30 s → 1 min → 3 min). OK pula na hora; parado 1,5 s pula sozinho; Voltar cancela |
+| Voltar no player | Sai do vídeo (mesmo com os controles escondidos) |
 | Play/Pause, ⏪ ⏩, Stop | Controles de mídia |
 
 ### Identificação do app

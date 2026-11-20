@@ -100,6 +100,12 @@ var Player = (function () {
       }
     } else { vid.currentTime = Math.max(0, vid.currentTime + ms / 1000); }
   }
+  function seekTo(ms) {
+    if (isLive) return;
+    var d = duration(); ms = Math.max(0, d > 0 ? Math.min(ms, d - 3000) : ms);
+    if (av) { try { av.seekTo(Math.floor(ms), function () {}, function () {}); } catch (e) { try { av.seekTo(Math.floor(ms)); } catch (e2) {} } }
+    else { try { vid.currentTime = ms / 1000; } catch (e) {} }
+  }
   function current() { if (av) { try { return av.getCurrentTime(); } catch (e) { return 0; } } return (vid.currentTime || 0) * 1000; }
   function duration() {
     if (av) { try { return av.getDuration(); } catch (e) { return 0; } }
@@ -134,6 +140,6 @@ var Player = (function () {
 
   window.addEventListener('resize', function () { if (av && state !== 'idle') rect(); });
 
-  return { open: open, stop: stopAll, toggle: toggle, playing: playing, seekBy: seekBy, current: current, duration: duration,
+  return { open: open, stop: stopAll, toggle: toggle, playing: playing, seekBy: seekBy, seekTo: seekTo, current: current, duration: duration,
     tracks: tracks, selectTrack: selectTrack, suspend: suspend, restore: restore, isTV: !!av };
 })();

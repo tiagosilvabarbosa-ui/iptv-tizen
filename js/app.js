@@ -130,6 +130,8 @@
     var cur = A.focus && A.focus.offsetParent !== null && (!modalOn() || overlay.contains(A.focus)) ? A.focus : null, els = focusables();
     if (!cur) { setFocus(els[0]); return; }
     if (dir === 'right' && rail.contains(cur) && A.lastScreenFocus && screen.contains(A.lastScreenFocus) && A.lastScreenFocus.offsetParent !== null) { setFocus(A.lastScreenFocus); return; }
+    var lzn = !modalOn() && cur.parentNode && cur.parentNode.getAttribute && cur.parentNode.getAttribute('data-lz');
+    if (lzn && LZ[lzn] && lzMove(LZ[lzn], cur, dir)) return;
     var r = cur.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, best = null, bd = 1e12, h = dir === 'left' || dir === 'right';
     for (var i = 0; i < els.length; i++) {
       var e = els[i]; if (e === cur) continue;
@@ -140,6 +142,23 @@
     }
     if (best && rail.contains(best) && !rail.contains(cur)) best = $('.nav.cur', rail) || best;
     if (best) setFocus(best);
+  }
+  /* navegação rápida em grades/listas longas: calcula pelo índice (sem medir centenas de capas) */
+  function lzMove(lz, cur, dir) {
+    var kids = lz.el.children, idx = +cur.getAttribute('data-idx'), len = lz.items.length;
+    if (isNaN(idx) || kids[idx] !== cur) return false;
+    if (!lz.cols) { var top0 = kids[0].offsetTop, c = 0; while (c < kids.length && kids[c].offsetTop === top0) c++; lz.cols = c || 1; }
+    var cols = lz.cols, t;
+    if (dir === 'left') { if (idx % cols === 0) return false; t = idx - 1; }
+    else if (dir === 'right') { if (idx % cols === cols - 1 || idx + 1 >= len) return cols > 1; t = idx + 1; }
+    else if (dir === 'up') { if (idx < cols) return false; t = idx - cols; }
+    else {
+      t = idx + cols;
+      if (t >= len) { t = len - 1; if (Math.floor(t / cols) === Math.floor(idx / cols)) return true; }
+    }
+    if (t >= lz.n) more(lz, t + lz.step);
+    if (kids[t]) setFocus(kids[t]);
+    return true;
   }
   function findFk(fk) { return fk ? $$('[data-fk]').filter(function (e) { return e.getAttribute('data-fk') === fk; })[0] : null; }
   function curFk() { return A.lastScreenFocus && A.lastScreenFocus.getAttribute('data-fk'); }
@@ -216,7 +235,11 @@
   }
 
   /* ---------------- carregar lista ativa ---------------- */
+  /* categorias "Lançamentos" sempre em primeiro (vale também para listas já salvas no cache) */
+  function isLanc(g) { return !!g && /lancamento|estreia/.test(norm(g.name)); }
+  function lancFirst(gr) { return gr.filter(isLanc).concat(gr.filter(function (g) { return !isLanc(g); })); }
   function indexCat(cat) {
+    cat.liveGroups = lancFirst(cat.liveGroups); cat.movieGroups = lancFirst(cat.movieGroups); cat.seriesGroups = lancFirst(cat.seriesGroups);
     A.map = {};
     cat.live.forEach(function (x, i) { x.n = i + 1; A.map[x.id] = x; });
     cat.movies.forEach(function (x) { A.map[x.id] = x; });
@@ -271,7 +294,7 @@
       }
       html += '<div class="homevs vs' + (h ? '' : ' nohero') + '">';
       // continuar assistindo
-      var pr = Store.progs(A.list.id), pk = Object.keys(pr).sort(function (a, b) { return pr[b].t - pr[a].t; }).slice(0, 15);
+      var pr = Store.progs(A.list.id), pk = Object.keys(pr).filter(function (k) { return !pr[k].done; }).sort(function (a, b) { return pr[b].t - pr[a].t; }).slice(0, 15);
       if (pk.length) html += row('Continuar assistindo', '', pk.map(function (k) {
         var v = pr[k], it = { id: k, name: v.title, cover: v.cover, year: '', group: '' };
         return posterHTML(it, 'resume', { a: 'resume', p: k, fk: 'cw:' + k, prog: Math.min(100, Math.round(v.pos / Math.max(1, v.dur) * 100)), sub: v.sub || ('Parou em ' + fmtT(v.pos)) });
@@ -282,14 +305,25 @@
       Object.keys(fv.series || {}).forEach(function (id) { if (A.map[id]) mine.push([fv.series[id], 'series', A.map[id]]); });
       mine.sort(function (a, b) { return b[0] - a[0]; });
       if (mine.length) html += row('Minha lista', '', mine.slice(0, 20).map(function (m) { return posterHTML(m[2], m[1], { fk: 'my:' + m[2].id }); }).join(''));
+      // lançamentos da lista (filmes e séries) logo no topo
+      var lancRows = function (groups, list, kind, word) {
+        groups.filter(isLanc).slice(0, 2).forEach(function (g) {
+          var its = [], i;
+          for (i = 0; i < list.length && its.length < 20; i++) if (list[i].group === g.name) its.push(list[i]);
+          html += row(g.name, g.count + ' ' + word, its.map(function (m) { return posterHTML(m, kind, { fk: 'lg' + g.name + ':' + m.id }); }).join(''));
+        });
+      };
+      lancRows(c.movieGroups, c.movies, 'movie', 'filmes');
+      lancRows(c.seriesGroups, c.series, 'series', 'séries');
       // canais
       var fl = c.live.filter(function (x) { return fv.live && fv.live[x.id]; });
       var chs = (fl.length ? fl : c.live).slice(0, 15);
       if (chs.length) html += row(fl.length ? 'Canais favoritos' : 'Canais ao vivo', c.live.length + ' canais', chs.map(chCard).join(''));
       if (c.movies.length) html += row('Filmes adicionados recentemente', c.movies.length + ' filmes', byAdded(c.movies, 20).map(function (m) { return posterHTML(m, 'movie', { badge: 'NOVO', fk: 'rm:' + m.id }); }).join(''));
       if (c.series.length) html += row('Séries atualizadas', c.series.length + ' séries', byAdded(c.series, 20).map(function (m) { return posterHTML(m, 'series', { fk: 'rs:' + m.id }); }).join(''));
-      c.movieGroups.slice(0, 4).forEach(function (g) {
-        var its = c.movies.filter(function (m) { return m.group === g.name; }).slice(0, 20);
+      c.movieGroups.filter(function (g) { return !isLanc(g); }).slice(0, 4).forEach(function (g) {
+        var its = [], i;
+        for (i = 0; i < c.movies.length && its.length < 20; i++) if (c.movies[i].group === g.name) its.push(c.movies[i]);
         html += row(g.name, g.count + ' filmes', its.map(function (m) { return posterHTML(m, 'movie', { fk: 'g' + g.name + ':' + m.id }); }).join(''));
       });
       if (!c.live.length && !c.movies.length && !c.series.length) html += '<div class="empty">A lista foi carregada mas está vazia.</div>';
@@ -406,9 +440,12 @@
   SCR.grid = {
     render: function (p) {
       if (!A.cat) return '';
-      if (p.g == null) p.g = -1;
       var mv = p.type === 'movies', gr = mv ? A.cat.movieGroups : A.cat.seriesGroups, all = mv ? A.cat.movies : A.cat.series;
-      var chips = [[-1, mv ? 'Todos' : 'Todas'], [-3, 'Adicionados recentemente'], [-2, '★ Minha lista']].concat(gr.map(function (g, i) { return [i, g.name]; }));
+      if (p.g == null) p.g = isLanc(gr[0]) ? 0 : -1;
+      var nl = 0; while (isLanc(gr[nl])) nl++;
+      var chips = gr.slice(0, nl).map(function (g, i) { return [i, g.name]; })
+        .concat([[-1, mv ? 'Todos' : 'Todas'], [-3, 'Adicionados recentemente'], [-2, '★ Minha lista']])
+        .concat(gr.slice(nl).map(function (g, i) { return [i + nl, g.name]; }));
       return '<div class="gwrap"><div class="ghead"><div><div class="ttl">' + (mv ? 'Filmes' : 'Séries') + '</div><div class="count" id="gcount"></div></div>' +
         '<div class="search f" data-a="edit" data-commit="gsearch" data-fk="gsearch">' + ic('search') + '<input id="gq" placeholder="Buscar ' + (mv ? 'filme' : 'série') + '…" value="' + esc(p.q || '') + '"></div></div>' +
         '<div class="chips hs" id="gchips">' + chips.map(function (c) { return '<div class="chip f' + (c[0] === p.g ? ' cur' : '') + '" data-a="ggroup" data-p="' + c[0] + '" data-fk="gc:' + c[0] + '">' + esc(c[1]) + '</div>'; }).join('') + '</div>' +
@@ -603,7 +640,7 @@
         '<div class="perr"><b>Ops!</b><span id="perrm"></span><div style="margin-top:28px"><div class="btn f" data-a="pretry">Tentar de novo</div><div class="btn f" data-a="back">Voltar</div></div></div>' +
         '<div class="ui"><div class="top" id="ptop"></div><div class="bot">' +
         (live ? '<div class="tl"><span class="livetag">AO VIVO</span><span id="pnow" style="margin-left:20px;color:#c9cdd8"></span></div>'
-          : '<div class="tl"><span id="pcur">0:00</span><div class="track"><i id="pbar"></i></div><span id="pdur">--:--</span></div>') +
+          : '<div class="tl"><span id="pcur">0:00</span><div class="track f" id="ptrack" data-a="pscrub" data-fk="ptrack"><i id="pbar"></i><b id="pthumb"></b><em id="ptip"></em></div><span id="pdur">--:--</span></div>') +
         '<div class="ctr"><div><div class="btn f" data-a="paudio" id="baud">Áudio</div></div><div class="mid">' +
         (live ? '<div class="rb f" data-a="pzap" data-p="-1">' + UP + '</div><div class="rb big f" data-a="ptoggle" id="bpp" data-def>' + PAUSE + '</div><div class="rb f" data-a="pzap" data-p="1">' + DOWN + '</div>'
           : '<div class="rb f" data-a="pseek" data-p="-10000">' + RW + '</div><div class="rb big f" data-a="ptoggle" id="bpp" data-def>' + PAUSE + '</div><div class="rb f" data-a="pseek" data-p="30000">' + FF + '</div>') +
@@ -614,6 +651,8 @@
       var live = p.kind === 'live', ch = live ? p.items[p.idx] : null, url = live ? ch.url : p.url;
       var pl = document.getElementById('pl'); pl.className = 'player buffering';
       document.getElementById('psub').textContent = '';
+      scrubCancel(); var bpp = document.getElementById('bpp'); if (bpp) bpp.innerHTML = PAUSE;
+      if (!live) { document.getElementById('pcur').textContent = '0:00'; document.getElementById('pdur').textContent = '--:--'; setBar(0); }
       document.getElementById('ptop').innerHTML = (live ? logoHTML(ch) : '') + '<div><h2>' + esc(live ? ch.n + ' · ' + ch.name : p.title) + '</h2><p>' + esc(live ? ch.group : p.sub || '') + '</p></div>';
       if (live) { var bf = document.getElementById('bfav'); if (bf) bf.innerHTML = Store.isFav(A.list.id, 'live', ch.id) ? '★ Favorito' : '☆ Favoritar'; this.nowNext(ch); }
       showUI();
@@ -623,8 +662,8 @@
           onBuffer: function (b) { var e = document.getElementById('pl'); if (e) e.classList.toggle('buffering', !!b); },
           onReady: function () { var e = document.getElementById('pl'); if (e) e.classList.remove('buffering'); },
           onTime: function (ms, dur) {
-            if (live) return; var c = document.getElementById('pcur'); if (!c) return;
-            c.textContent = fmtT(ms); if (dur > 0) { document.getElementById('pdur').textContent = fmtT(dur); document.getElementById('pbar').style.width = Math.min(100, ms / dur * 100) + '%'; }
+            if (live || PL.scrub || Date.now() < PL.ignT) return; var c = document.getElementById('pcur'); if (!c) return;
+            c.textContent = fmtT(ms); if (dur > 0) { document.getElementById('pdur').textContent = fmtT(dur); setBar(ms / dur); }
           },
           onSubtitle: function (t) { var s = document.getElementById('psub'); if (s) s.textContent = String(t || '').replace(/<[^>]+>/g, ''); },
           onEnd: function () { saveProg(true); if (p.kind === 'ep' && p.info) { var eps = p.info.seasons[p.s]; if (eps && p.i + 1 < eps.length) { toast('Próximo episódio…'); A.cur.p = p = nextEpParams(p); SCR.player.start(p); return; } } back(); },
@@ -640,10 +679,13 @@
         var e2 = document.getElementById('pnow'); if (e2 && cur) e2.textContent = 'Agora: ' + cur.title + ' (até ' + clock(new Date(cur.end)) + ')';
       }).catch(function () {});
     },
-    leave: function () { saveProg(true); clearInterval(PL.saveT); clearTimeout(PL.hideT); Player.stop(); document.body.classList.remove('playing'); },
+    leave: function () { saveProg(true); clearInterval(PL.saveT); clearTimeout(PL.hideT); scrubCancel(); Player.stop(); document.body.classList.remove('playing'); },
     key: function (k) {
       var p = A.cur.p, live = p.kind === 'live', pl = document.getElementById('pl'), hidden = pl && pl.classList.contains('hide'), err = pl && pl.classList.contains('error');
       if (err) return false;
+      if (k === 'back' && PL.scrub) { scrubCancel(); showUI(); return true; }
+      if (k === 'back') return false;
+      if (!live && !hidden && (k === 'left' || k === 'right') && A.focus && A.focus.id === 'ptrack') { scrubStep(k === 'left' ? -1 : 1); return true; }
       if (k === 'PlayPause' || k === 'Play' || k === 'Pause') { ACT.ptoggle(); return true; }
       if (k === 'Stop') { back(); return true; }
       if (k === 'FF') { ACT.pseek(30000); return true; }
@@ -653,7 +695,7 @@
       if (live && k === 'Yellow') { ACT.pfav(); return true; }
       if (live && /^\d$/.test(k)) { zapDigit(k); return true; }
       if (hidden) {
-        if (!live && (k === 'left' || k === 'right')) { ACT.pseek(k === 'left' ? -10000 : 10000); return true; }
+        if (!live && (k === 'left' || k === 'right')) { showUI(); var tr = document.getElementById('ptrack'); if (tr) setFocus(tr); scrubStep(k === 'left' ? -1 : 1); return true; }
         showUI(); return true;
       }
       showUI(); return false;
@@ -686,6 +728,39 @@
       var p = A.cur.p; p.items = A.cat.live; p.idx = n - 1; SCR.player.start(p);
     }, 1500);
   }
+  /* linha do tempo: selecione a barra e use ◀ ▶ para escolher o ponto; OK (ou 1,5 s parado) pula para lá */
+  function setBar(fr) {
+    fr = Math.max(0, Math.min(1, fr || 0)) * 100;
+    var b = document.getElementById('pbar'), t = document.getElementById('pthumb'), e = document.getElementById('ptip');
+    if (b) b.style.width = fr + '%'; if (t) t.style.left = fr + '%'; if (e) e.style.left = Math.max(6, Math.min(94, fr)) + '%';
+  }
+  function scrubStep(dir) {
+    var dur = Player.duration(); if (!(dur > 0)) { toast('Aguarde o vídeo carregar…', 1200); return; }
+    var now = Date.now();
+    PL.rep = now - (PL.lastScrub || 0) < 700 ? (PL.rep || 0) + 1 : 0; PL.lastScrub = now;
+    var step = PL.rep < 4 ? 10000 : PL.rep < 10 ? 30000 : PL.rep < 18 ? 60000 : 180000;
+    var pos = (PL.scrub ? PL.scrub.pos : Player.current()) + dir * step;
+    pos = Math.max(0, Math.min(dur - 3000, pos));
+    PL.scrub = { pos: pos };
+    var tr = document.getElementById('ptrack'); if (tr) tr.classList.add('scrub');
+    var tip = document.getElementById('ptip'), cur = Player.current(), diff = Math.round((pos - cur) / 1000);
+    if (tip) tip.textContent = fmtT(pos) + '  (' + (diff >= 0 ? '+' : '−') + fmtT(Math.abs(diff) * 1000) + ')';
+    document.getElementById('pcur').textContent = fmtT(pos); document.getElementById('pdur').textContent = fmtT(dur);
+    setBar(pos / dur); showUI();
+    clearTimeout(PL.scrubT); PL.scrubT = setTimeout(scrubCommit, 1500);
+  }
+  function scrubCommit() {
+    clearTimeout(PL.scrubT); if (!PL.scrub) return;
+    var pos = PL.scrub.pos; PL.scrub = null; PL.ignT = Date.now() + 2500;
+    var tr = document.getElementById('ptrack'); if (tr) tr.classList.remove('scrub');
+    Player.seekTo(pos); showUI();
+  }
+  function scrubCancel() {
+    clearTimeout(PL.scrubT); var had = !!PL.scrub; PL.scrub = null;
+    var tr = document.getElementById('ptrack'); if (tr) tr.classList.remove('scrub');
+    if (had) { var d = Player.duration(), c = Player.current(), e = document.getElementById('pcur'); if (e) e.textContent = fmtT(c); if (d > 0) setBar(c / d); }
+  }
+  ACT.pscrub = function () { if (PL.scrub) scrubCommit(); else toast('Use ◀ ▶ para escolher o ponto do filme', 2000); };
   ACT.ptoggle = function () { var on = Player.toggle(); var b = document.getElementById('bpp'); if (b) b.innerHTML = on ? PAUSE : PLAY; showUI(); };
   ACT.pseek = function (ms) { Player.seekBy(+ms); showUI(); toast((+ms > 0 ? '+' : '−') + Math.abs(ms / 1000) + 's', 900); };
   ACT.pzap = function (d) { var p = A.cur.p, n = p.items.length; if (!n) return; p.idx = (p.idx + (+d) + n) % n; SCR.player.start(p); };

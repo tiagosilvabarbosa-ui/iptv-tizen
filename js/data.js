@@ -229,13 +229,16 @@ var Src = (function () {
     var u = encodeURIComponent(l.user), p = encodeURIComponent(l.pass);
     return api(l, 'get_series_info', '&series_id=' + it.xid).then(function (r) {
       var i = (r && r.info) || {}, seasons = {}, eps = r && r.episodes ? r.episodes : {};
+      // alguns painéis mandam {"1":[...],"2":[...]}, outros uma lista de listas: usa o campo "season" do episódio
       Object.keys(eps).forEach(function (k) {
-        seasons[k] = arr(eps[k]).map(function (e) {
-          var ei = e.info || {};
-          return { id: 'e' + e.id, n: +e.episode_num || 0, title: e.title || ('Episódio ' + e.episode_num), cover: ei.movie_image || '',
-            dur: ei.duration || '', plot: ei.plot || '', url: l.server + '/series/' + u + '/' + p + '/' + e.id + '.' + (e.container_extension || 'mp4') };
-        }).sort(function (a, b) { return a.n - b.n; });
+        arr(eps[k]).forEach(function (e) {
+          if (!e || e.id == null) return;
+          var ei = e.info || {}, sk = String(e.season != null && e.season !== '' ? +e.season : k);
+          (seasons[sk] = seasons[sk] || []).push({ id: 'e' + e.id, n: +e.episode_num || 0, title: e.title || ('Episódio ' + e.episode_num), cover: ei.movie_image || '',
+            dur: ei.duration || '', plot: ei.plot || '', url: l.server + '/series/' + u + '/' + p + '/' + e.id + '.' + (e.container_extension || 'mp4') });
+        });
       });
+      Object.keys(seasons).forEach(function (k) { seasons[k].sort(function (a, b) { return a.n - b.n; }); });
       return { seasons: seasons, plot: i.plot || it.plot || '', cast: i.cast || '', director: i.director || '', genre: i.genre || '',
         rating: num(i.rating) || it.rating, backdrop: arr(i.backdrop_path)[0] || '', cover: i.cover || '', year: String(i.releaseDate || '').slice(0, 4) };
     });
